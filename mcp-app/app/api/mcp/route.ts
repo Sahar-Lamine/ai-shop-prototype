@@ -23,8 +23,7 @@ if (!BACKEND_URL) {
 const WIDGET_URI = "ui://widget/products-grid.html";
 const WIDGET_MIME = "text/html;profile=mcp-app";
 
-const widgetHtml = `
-<!doctype html>
+const widgetHtml = String.raw`<!doctype html>
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
@@ -172,18 +171,18 @@ const widgetHtml = `
         const products = Array.isArray(data?.products) ? data.products : [];
 
         subtitleEl.textContent = query
-          ? total + ' produit(s) trouvé(s) pour « ' + query + ' »'
-          : total + ' produit(s) disponibles';
+          ? total + " produit(s) trouvé(s) pour « " + query + " »"
+          : total + " produit(s) disponibles";
 
-        chipsEl.innerHTML = '';
-        const chip1 = document.createElement('div');
-        chip1.className = 'chip';
-        chip1.textContent = query ? 'Recherche : ' + query : 'Tous les produits';
+        chipsEl.innerHTML = "";
+        const chip1 = document.createElement("div");
+        chip1.className = "chip";
+        chip1.textContent = query ? "Recherche : " + query : "Tous les produits";
         chipsEl.appendChild(chip1);
 
-        const chip2 = document.createElement('div');
-        chip2.className = 'chip';
-        chip2.textContent = total + ' résultat(s)';
+        const chip2 = document.createElement("div");
+        chip2.className = "chip";
+        chip2.textContent = total + " résultat(s)";
         chipsEl.appendChild(chip2);
 
         if (!products.length) {
@@ -191,25 +190,32 @@ const widgetHtml = `
           return;
         }
 
-        appEl.innerHTML = '<div class="grid">' + products.map((p) => \`
-          <article class="card">
-            <div class="img-wrap">
-              <img src="\${esc(p.image)}" alt="\${esc(p.name)}">
-            </div>
-            <div class="body">
-              <div class="category">\${esc(p.category || "Catalogue")}</div>
-              <h2 class="name">\${esc(p.name)}</h2>
-              <p class="desc">\${esc(p.description || "")}</p>
-              <div class="meta">
-                <div class="price">\${Number(p.price).toFixed(2)} \${esc(p.currency || "CHF")}</div>
-                <div class="stock">Stock : \${esc(p.stock ?? 0)}</div>
-              </div>
-              <div class="tags">
-                \${(p.tags || []).map((tag) => '<span class="tag">' + esc(tag) + '</span>').join('')}
-              </div>
-            </div>
-          </article>
-        \`).join('') + '</div>';
+        appEl.innerHTML =
+          '<div class="grid">' +
+          products.map((p) => {
+            const tags = (p.tags || [])
+              .map((tag) => '<span class="tag">' + esc(tag) + '</span>')
+              .join("");
+
+            return (
+              '<article class="card">' +
+                '<div class="img-wrap">' +
+                  '<img src="' + esc(p.image) + '" alt="' + esc(p.name) + '">' +
+                '</div>' +
+                '<div class="body">' +
+                  '<div class="category">' + esc(p.category || "Catalogue") + '</div>' +
+                  '<h2 class="name">' + esc(p.name) + '</h2>' +
+                  '<p class="desc">' + esc(p.description || "") + '</p>' +
+                  '<div class="meta">' +
+                    '<div class="price">' + Number(p.price).toFixed(2) + " " + esc(p.currency || "CHF") + '</div>' +
+                    '<div class="stock">Stock : ' + esc(p.stock ?? 0) + '</div>' +
+                  '</div>' +
+                  '<div class="tags">' + tags + '</div>' +
+                '</div>' +
+              '</article>'
+            );
+          }).join("") +
+          '</div>';
       }
 
       window.addEventListener("message", (event) => {
@@ -226,35 +232,40 @@ const widgetHtml = `
       render({ query: "", total: 0, products: [] });
     </script>
   </body>
-</html>
-`;
+</html>`;
 
 async function fetchProducts(search?: string): Promise<Product[]> {
   const url = search
-    ? \`\${BACKEND_URL}/api/products?search=\${encodeURIComponent(search)}\`
-    : \`\${BACKEND_URL}/api/products\`;
+    ? `${BACKEND_URL}/api/products?search=${encodeURIComponent(search)}`
+    : `${BACKEND_URL}/api/products`;
 
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(\`Backend error: \${res.status}\`);
+  if (!res.ok) {
+    throw new Error(`Backend error while fetching products: ${res.status}`);
+  }
 
   const data = await res.json();
   return Array.isArray(data?.items) ? data.items : [];
 }
 
 async function fetchProductById(id: string): Promise<Product | null> {
-  const res = await fetch(\`\${BACKEND_URL}/api/products/\${id}\`, {
+  const res = await fetch(`${BACKEND_URL}/api/products/${id}`, {
     cache: "no-store",
   });
 
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(\`Backend error: \${res.status}\`);
+  if (!res.ok) {
+    throw new Error(`Backend error while fetching product ${id}: ${res.status}`);
+  }
 
   return res.json();
 }
 
 function uiMeta() {
   return {
-    ui: { resourceUri: WIDGET_URI },
+    ui: {
+      resourceUri: WIDGET_URI,
+    },
     "openai/outputTemplate": WIDGET_URI,
     "openai/toolInvocation/invoking": "Chargement des produits…",
     "openai/toolInvocation/invoked": "Produits affichés.",
@@ -274,12 +285,10 @@ const handler = createMcpHandler(
               "Une grille de produits e-commerce avec image, prix, description et stock.",
             "openai/widgetPrefersBorder": true,
             "openai/widgetCSP": {
+              connect_domains: [new URL(BACKEND_URL).origin],
               resource_domains: [
-                "https://via.placeholder.com",
-                "https://backend-dusky-delta-10.vercel.app"
-              ],
-              connect_domains: [
-                "https://backend-dusky-delta-10.vercel.app"
+                new URL(BACKEND_URL).origin,
+                "https://via.placeholder.com"
               ]
             }
           },
@@ -293,13 +302,19 @@ const handler = createMcpHandler(
       {},
       async () => {
         const products = await fetchProducts();
+
         return {
           structuredContent: {
             query: "",
             total: products.length,
             products,
           },
-          content: [{ type: "text", text: \`\${products.length} produit(s) disponibles.\` }],
+          content: [
+            {
+              type: "text",
+              text: `${products.length} produit(s) disponibles.`,
+            },
+          ],
           _meta: uiMeta(),
         };
       }
@@ -308,16 +323,25 @@ const handler = createMcpHandler(
     server.tool(
       "search_products",
       "Recherche des produits par mot-clé.",
-      { query: z.string().min(1) },
+      {
+        query: z.string().min(1),
+      },
       async ({ query }) => {
-        const products = await fetchProducts(query.trim());
+        const trimmed = query.trim();
+        const products = await fetchProducts(trimmed);
+
         return {
           structuredContent: {
-            query,
+            query: trimmed,
             total: products.length,
             products,
           },
-          content: [{ type: "text", text: \`\${products.length} produit(s) trouvé(s) pour « \${query} ».\` }],
+          content: [
+            {
+              type: "text",
+              text: `${products.length} produit(s) trouvé(s) pour « ${trimmed} ».`,
+            },
+          ],
           _meta: uiMeta(),
         };
       }
@@ -326,9 +350,12 @@ const handler = createMcpHandler(
     server.tool(
       "get_product",
       "Retourne le détail d’un produit par id.",
-      { id: z.string().min(1) },
+      {
+        id: z.string().min(1),
+      },
       async ({ id }) => {
-        const product = await fetchProductById(id.trim());
+        const trimmed = id.trim();
+        const product = await fetchProductById(trimmed);
         const products = product ? [product] : [];
 
         return {
@@ -341,8 +368,8 @@ const handler = createMcpHandler(
             {
               type: "text",
               text: product
-                ? \`Détail du produit : \${product.name}.\`
-                : \`Aucun produit trouvé pour l’identifiant \${id}.\`,
+                ? `Détail du produit : ${product.name}.`
+                : `Aucun produit trouvé pour l’identifiant ${trimmed}.`,
             },
           ],
           _meta: uiMeta(),
