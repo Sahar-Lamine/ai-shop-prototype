@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = "https://backend-dusky-delta-10.vercel.app/api";
 
 export async function fetchProducts(search = "") {
   const url = search
