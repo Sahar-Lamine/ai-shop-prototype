@@ -1,5 +1,26 @@
-import { createMcpHandler } from "mcp-handler";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
+import { URL } from "node:url";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import {
+  CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  ReadResourceRequestSchema,
+  type CallToolRequest,
+  type ListResourcesRequest,
+  type ListToolsRequest,
+  type ReadResourceRequest,
+  type Resource,
+  type Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+
+// --- Types & Configuration ---
 
 type Product = {
   id: string;
@@ -15,7 +36,6 @@ type Product = {
 };
 
 const BACKEND_URL = process.env.BACKEND_URL;
-
 if (!BACKEND_URL) {
   throw new Error("Missing BACKEND_URL environment variable");
 }
@@ -23,362 +43,196 @@ if (!BACKEND_URL) {
 const WIDGET_URI = "ui://widget/products-grid.html";
 const WIDGET_MIME = "text/html;profile=mcp-app";
 
+// --- Inline HTML Widget ---
+// (Kept inline as per your original file, but used by the resource handler)
 const widgetHtml = String.raw`<!doctype html>
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Products Grid</title>
     <style>
-      body {
-        margin: 0;
-        padding: 16px;
-        font-family: Inter, Arial, sans-serif;
-        background: #f6f7fb;
-        color: #111827;
-      }
-      .title {
-        font-size: 22px;
-        font-weight: 700;
-        margin: 0 0 6px;
-      }
-      .subtitle {
-        color: #6b7280;
-        margin: 0 0 16px;
-        font-size: 14px;
-      }
-      .chips {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-        margin-bottom: 18px;
-      }
-      .chip {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 999px;
-        padding: 8px 12px;
-        font-size: 13px;
-        color: #6b7280;
-      }
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 16px;
-      }
-      .card {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 18px;
-        overflow: hidden;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-      }
-      .img-wrap {
-        aspect-ratio: 4 / 3;
-        background: #f3f4f6;
-      }
-      .img-wrap img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
-      }
-      .body {
-        padding: 16px;
-      }
-      .category {
-        font-size: 12px;
-        color: #6b7280;
-        margin-bottom: 8px;
-      }
-      .name {
-        margin: 0 0 8px;
-        font-size: 18px;
-        line-height: 1.35;
-      }
-      .desc {
-        margin: 0 0 14px;
-        color: #6b7280;
-        font-size: 14px;
-        min-height: 42px;
-      }
-      .meta {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        align-items: center;
-        margin-bottom: 12px;
-      }
-      .price {
-        font-size: 18px;
-        font-weight: 700;
-      }
-      .stock {
-        font-size: 12px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: #ecfdf5;
-        color: #065f46;
-        font-weight: 600;
-      }
-      .tags {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-      .tag {
-        font-size: 12px;
-        color: #6b7280;
-        padding: 5px 8px;
-        border: 1px solid #e5e7eb;
-        border-radius: 999px;
-        background: #fafafa;
-      }
-      .empty {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 18px;
-        padding: 24px;
-        text-align: center;
-        color: #6b7280;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-      }
+      body { margin: 0; padding: 16px; font-family: Inter, sans-serif; background: #f6f7fb; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+      .card { background: white; border: 1px solid #e5e7eb; border-radius: 18px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+      .img-wrap { aspect-ratio: 4 / 3; background: #f3f4f6; }
+      .img-wrap img { width: 100%; height: 100%; object-fit: cover; }
+      .body { padding: 16px; }
+      .price { font-size: 18px; font-weight: 700; color: #111827; }
+      .stock { font-size: 12px; padding: 4px 8px; border-radius: 999px; background: #ecfdf5; color: #065f46; }
     </style>
   </head>
   <body>
-    <h1 class="title">Résultats catalogue</h1>
-    <p class="subtitle" id="subtitle">Chargement…</p>
-    <div class="chips" id="chips"></div>
-    <div id="app" class="empty">Aucun produit.</div>
-
+    <h1 id="title">Catalogue</h1>
+    <div id="app">Chargement...</div>
     <script>
       const appEl = document.getElementById("app");
-      const subtitleEl = document.getElementById("subtitle");
-      const chipsEl = document.getElementById("chips");
-
-      function esc(v) {
-        return String(v ?? "")
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;")
-          .replaceAll('"', "&quot;")
-          .replaceAll("'", "&#039;");
-      }
-
-      function render(data) {
-        const query = data?.query ?? "";
-        const total = data?.total ?? 0;
-        const products = Array.isArray(data?.products) ? data.products : [];
-
-        subtitleEl.textContent = query
-          ? total + " produit(s) trouvé(s) pour « " + query + " »"
-          : total + " produit(s) disponibles";
-
-        chipsEl.innerHTML = "";
-        const chip1 = document.createElement("div");
-        chip1.className = "chip";
-        chip1.textContent = query ? "Recherche : " + query : "Tous les produits";
-        chipsEl.appendChild(chip1);
-
-        const chip2 = document.createElement("div");
-        chip2.className = "chip";
-        chip2.textContent = total + " résultat(s)";
-        chipsEl.appendChild(chip2);
-
-        if (!products.length) {
-          appEl.innerHTML = '<div class="empty">Aucun produit trouvé.</div>';
-          return;
-        }
-
-        appEl.innerHTML =
-          '<div class="grid">' +
-          products.map((p) => {
-            const tags = (p.tags || [])
-              .map((tag) => '<span class="tag">' + esc(tag) + '</span>')
-              .join("");
-
-            return (
-              '<article class="card">' +
-                '<div class="img-wrap">' +
-                  '<img src="' + esc(p.image) + '" alt="' + esc(p.name) + '">' +
-                '</div>' +
-                '<div class="body">' +
-                  '<div class="category">' + esc(p.category || "Catalogue") + '</div>' +
-                  '<h2 class="name">' + esc(p.name) + '</h2>' +
-                  '<p class="desc">' + esc(p.description || "") + '</p>' +
-                  '<div class="meta">' +
-                    '<div class="price">' + Number(p.price).toFixed(2) + " " + esc(p.currency || "CHF") + '</div>' +
-                    '<div class="stock">Stock : ' + esc(p.stock ?? 0) + '</div>' +
-                  '</div>' +
-                  '<div class="tags">' + tags + '</div>' +
-                '</div>' +
-              '</article>'
-            );
-          }).join("") +
-          '</div>';
-      }
-
       window.addEventListener("message", (event) => {
         const message = event.data;
-        if (!message || message.jsonrpc !== "2.0") return;
-
-        if (message.method === "ui/notifications/tool-result") {
-          const structured = message.params?.structuredContent;
-          if (!structured) return;
-          render(structured);
+        if (message?.method === "ui/notifications/tool-result") {
+          const data = message.params?.structuredContent;
+          if (!data?.products) return;
+          appEl.innerHTML = '<div class="grid">' + data.products.map(p => `
+            <article class="card">
+              <div class="img-wrap"><img src="${p.image}"></div>
+              <div class="body">
+                <h3>${p.name}</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center">
+                  <span class="price">${p.price} ${p.currency}</span>
+                  <span class="stock">Stock: ${p.stock}</span>
+                </div>
+              </div>
+            </article>
+          `).join('') + '</div>';
         }
       });
-
-      render({ query: "", total: 0, products: [] });
     </script>
   </body>
 </html>`;
+
+// --- Data Fetching Logic ---
 
 async function fetchProducts(search?: string): Promise<Product[]> {
   const url = search
     ? `${BACKEND_URL}/api/products?search=${encodeURIComponent(search)}`
     : `${BACKEND_URL}/api/products`;
-
   const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`Backend error while fetching products: ${res.status}`);
-  }
-
+  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
   const data = await res.json();
   return Array.isArray(data?.items) ? data.items : [];
 }
 
 async function fetchProductById(id: string): Promise<Product | null> {
-  const res = await fetch(`${BACKEND_URL}/api/products/${id}`, {
-    cache: "no-store",
-  });
-
+  const res = await fetch(`${BACKEND_URL}/api/products/${id}`, { cache: "no-store" });
   if (res.status === 404) return null;
-  if (!res.ok) {
-    throw new Error(`Backend error while fetching product ${id}: ${res.status}`);
-  }
-
+  if (!res.ok) throw new Error(`Backend error: ${res.status}`);
   return res.json();
 }
 
-function uiMeta() {
-  return {
-    ui: {
-      resourceUri: WIDGET_URI,
-    },
-    "openai/outputTemplate": WIDGET_URI,
-    "openai/toolInvocation/invoking": "Chargement des produits…",
-    "openai/toolInvocation/invoked": "Produits affichés.",
-  };
+// --- MCP Server Setup ---
+
+function createProductServer(): Server {
+  const server = new Server(
+    { name: "product-catalog-server", version: "1.0.0" },
+    { capabilities: { resources: {}, tools: {} } }
+  );
+
+  // 1. Resources: Provide the HTML Widget
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [{
+      uri: WIDGET_URI,
+      name: "Product Grid UI",
+      description: "A grid view for displaying products",
+      mimeType: WIDGET_MIME
+    }]
+  }));
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    if (request.params.uri !== WIDGET_URI) {
+      throw new Error(`Unknown resource: ${request.params.uri}`);
+    }
+    return {
+      contents: [{
+        uri: WIDGET_URI,
+        mimeType: WIDGET_MIME,
+        text: widgetHtml,
+        _meta: { "openai/widgetDescription": "Grille de produits" }
+      }]
+    };
+  });
+
+  // 2. Tools: Define Search and List
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: [
+      {
+        name: "list_products",
+        description: "Returns all products in the catalog.",
+        inputSchema: { type: "object", properties: {} }
+      },
+      {
+        name: "search_products",
+        description: "Search products by keyword.",
+        inputSchema: {
+          type: "object",
+          properties: { query: { type: "string" } },
+          required: ["query"]
+        }
+      }
+    ]
+  }));
+
+  // 3. Tool Execution
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    let products: Product[] = [];
+    let queryText = "";
+
+    switch (request.params.name) {
+      case "list_products":
+        products = await fetchProducts();
+        break;
+      case "search_products":
+        const { query } = z.object({ query: z.string() }).parse(request.params.arguments);
+        queryText = query;
+        products = await fetchProducts(query);
+        break;
+      default:
+        throw new Error("Tool not found");
+    }
+
+    return {
+      content: [{ type: "text", text: `Found ${products.length} products.` }],
+      structuredContent: { query: queryText, total: products.length, products },
+      _meta: {
+        "openai/outputTemplate": WIDGET_URI,
+        "openai/toolInvocation/invoking": "Searching catalog...",
+        "openai/toolInvocation/invoked": "Products loaded."
+      }
+    };
+  });
+
+  return server;
 }
 
-const handler = createMcpHandler(
-  (server) => {
-    server.resource("products-grid", WIDGET_URI, async () => ({
-      contents: [
-        {
-          uri: WIDGET_URI,
-          mimeType: WIDGET_MIME,
-          text: widgetHtml,
-          _meta: {
-            "openai/widgetDescription":
-              "Une grille de produits e-commerce avec image, prix, description et stock.",
-            "openai/widgetPrefersBorder": true,
-            "openai/widgetCSP": {
-              connect_domains: [new URL(BACKEND_URL).origin],
-              resource_domains: [
-                new URL(BACKEND_URL).origin,
-                "https://via.placeholder.com"
-              ]
-            }
-          },
-        },
-      ],
-    }));
+// --- HTTP & Transport Handling ---
 
-    server.tool(
-      "list_products",
-      "Retourne tous les produits du catalogue.",
-      {},
-      async () => {
-        const products = await fetchProducts();
+const sessions = new Map<string, { server: Server; transport: SSEServerTransport }>();
 
-        return {
-          structuredContent: {
-            query: "",
-            total: products.length,
-            products,
-          },
-          content: [
-            {
-              type: "text",
-              text: `${products.length} produit(s) disponibles.`,
-            },
-          ],
-          _meta: uiMeta(),
-        };
-      }
-    );
+const httpServer = createServer(async (req, res) => {
+  const url = new URL(req.url ?? "", `http://${req.headers.host}`);
 
-    server.tool(
-      "search_products",
-      "Recherche des produits par mot-clé.",
-      {
-        query: z.string().min(1),
-      },
-      async ({ query }) => {
-        const trimmed = query.trim();
-        const products = await fetchProducts(trimmed);
+  // CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "content-type");
+  if (req.method === "OPTIONS") return res.writeHead(204).end();
 
-        return {
-          structuredContent: {
-            query: trimmed,
-            total: products.length,
-            products,
-          },
-          content: [
-            {
-              type: "text",
-              text: `${products.length} produit(s) trouvé(s) pour « ${trimmed} ».`,
-            },
-          ],
-          _meta: uiMeta(),
-        };
-      }
-    );
+  // SSE Endpoint
+  if (req.method === "GET" && url.pathname === "/mcp") {
+    const server = createProductServer();
+    const transport = new SSEServerTransport("/mcp/messages", res);
+    sessions.set(transport.sessionId, { server, transport });
+    
+    transport.onclose = async () => {
+      sessions.delete(transport.sessionId);
+      await server.close();
+    };
+    
+    await server.connect(transport);
+    return;
+  }
 
-    server.tool(
-      "get_product",
-      "Retourne le détail d’un produit par id.",
-      {
-        id: z.string().min(1),
-      },
-      async ({ id }) => {
-        const trimmed = id.trim();
-        const product = await fetchProductById(trimmed);
-        const products = product ? [product] : [];
+  // Message Posting Endpoint
+  if (req.method === "POST" && url.pathname === "/mcp/messages") {
+    const sessionId = url.searchParams.get("sessionId");
+    const session = sessionId ? sessions.get(sessionId) : null;
+    if (!session) return res.writeHead(404).end("Session not found");
+    
+    await session.transport.handlePostMessage(req, res);
+    return;
+  }
 
-        return {
-          structuredContent: {
-            query: "",
-            total: products.length,
-            products,
-          },
-          content: [
-            {
-              type: "text",
-              text: product
-                ? `Détail du produit : ${product.name}.`
-                : `Aucun produit trouvé pour l’identifiant ${trimmed}.`,
-            },
-          ],
-          _meta: uiMeta(),
-        };
-      }
-    );
-  },
-  {},
-  { basePath: "/api" }
-);
+  res.writeHead(404).end();
+});
 
-export { handler as GET, handler as POST, handler as DELETE };
+const PORT = process.env.PORT || 8000;
+httpServer.listen(PORT, () => {
+  console.log(`Product MCP Server running on http://localhost:${PORT}/mcp`);
+});
