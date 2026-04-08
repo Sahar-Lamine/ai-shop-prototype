@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { z } from "zod";
 import { createMcpHandler } from "mcp-handler";
 
 type Product = {
@@ -42,7 +41,7 @@ async function fetchProducts(search?: string): Promise<Product[]> {
   }
 
   const data = await res.json();
-  return data.items ?? [];
+  return Array.isArray(data?.items) ? data.items : [];
 }
 
 async function fetchProductById(id: string): Promise<Product | null> {
@@ -59,20 +58,20 @@ async function fetchProductById(id: string): Promise<Product | null> {
   return res.json();
 }
 
-function toolUiMeta() {
+function getToolMeta() {
   return {
     ui: {
       resourceUri: WIDGET_URI,
     },
     "openai/outputTemplate": WIDGET_URI,
-    "openai/toolInvocation/invoking": "Recherche des produits…",
-    "openai/toolInvocation/invoked": "Résultats produits affichés.",
+    "openai/toolInvocation/invoking": "Chargement des produits…",
+    "openai/toolInvocation/invoked": "Produits affichés.",
   };
 }
 
 const handler = createMcpHandler(
   (server) => {
-    // UI resource
+    // 1) Register the UI resource used by ChatGPT to render the grid
     server.registerResource(
       "products-grid-widget",
       WIDGET_URI,
@@ -89,7 +88,7 @@ const handler = createMcpHandler(
             text: widgetHtml,
             _meta: {
               "openai/widgetDescription":
-                "Une grille de produits e-commerce avec image, prix, description et stock.",
+                "Une grille de produits e-commerce avec image, prix, description, stock et actions.",
               "openai/widgetPrefersBorder": true,
               "openai/widgetCSP": {
                 connect_domains: [BACKEND_ORIGIN],
@@ -104,6 +103,7 @@ const handler = createMcpHandler(
       })
     );
 
+    // 2) Tool: list all products
     server.registerTool(
       "list_products",
       {
@@ -120,7 +120,7 @@ const handler = createMcpHandler(
           openWorldHint: false,
           idempotentHint: true,
         },
-        _meta: toolUiMeta(),
+        _meta: getToolMeta(),
       },
       async () => {
         const products = await fetchProducts();
@@ -144,6 +144,7 @@ const handler = createMcpHandler(
       }
     );
 
+    // 3) Tool: search products
     server.registerTool(
       "search_products",
       {
@@ -168,10 +169,10 @@ const handler = createMcpHandler(
           openWorldHint: false,
           idempotentHint: true,
         },
-        _meta: toolUiMeta(),
+        _meta: getToolMeta(),
       },
       async (args: { query: string }) => {
-        const query = args?.query?.trim() ?? "";
+        const query = (args?.query ?? "").trim();
         const products = await fetchProducts(query);
 
         return {
@@ -193,6 +194,7 @@ const handler = createMcpHandler(
       }
     );
 
+    // 4) Tool: get one product
     server.registerTool(
       "get_product",
       {
@@ -216,10 +218,10 @@ const handler = createMcpHandler(
           openWorldHint: false,
           idempotentHint: true,
         },
-        _meta: toolUiMeta(),
+        _meta: getToolMeta(),
       },
       async (args: { id: string }) => {
-        const id = args?.id?.trim() ?? "";
+        const id = (args?.id ?? "").trim();
         const product = await fetchProductById(id);
 
         if (!product) {
