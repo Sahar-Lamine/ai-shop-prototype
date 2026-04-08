@@ -1,0 +1,50 @@
+[
+  {
+    "id": "1",
+    "name": "Sucre blanc 1kg",
+    "slug": "sucre-blanc-1kg",
+    "price": 2.5,
+    "currency": "CHF",
+    "image": "https://via.placeholder.com/300x220?text=Sucre+Blanc",
+    "description": "Sucre blanc raffiné 1kg",
+    "category": "Epicerie",
+    "tags": ["sucre", "blanc", "patisserie"],
+    "stock": 20
+  },
+  {
+    "id": "2",
+    "name": "Sucre brun 500g",
+    "slug": "sucre-brun-500g",
+    "price": 3.1,
+    "currency": "CHF",
+    "image": "https://via.placeholder.com/300x220?text=Sucre+Brun",
+    "description": "Sucre brun de canne 500g",
+    "category": "Epicerie",
+    "tags": ["sucre", "brun", "canne"],
+    "stock": 12
+  },
+  {
+    "id": "3",
+    "name": "Riz basmati 1kg",
+    "slug": "riz-basmati-1kg",
+    "price": 4.2,
+    "currency": "CHF",
+    "image": "https://via.placeholder.com/300x220?text=Riz+Basmati",
+    "description": "Riz basmati premium",
+    "category": "Epicerie",
+    "tags": ["riz", "basmati"],
+    "stock": 30
+  },
+  {
+    "id": "4",
+    "name": "Farine blanche 1kg",
+    "slug": "farine-blanche-1kg",
+    "price": 1.9,
+    "currency": "CHF",
+    "image": "https://via.placeholder.com/300x220?text=Farine",
+    "description": "Farine blanche pour pâtisserie et cuisine",
+    "category": "Epicerie",
+    "tags": ["farine", "boulangerie", "patisserie"],
+    "stock": 25
+  }
+]
