@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Catalogue produits</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --bg: #f6f7fb;
+        --card: #ffffff;
+        --text: #111827;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        --radius: 18px;
+        --accent: #111827;
+        --success-bg: #ecfdf5;
+        --success-text: #065f46;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      body {
+        padding: 16px;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+
+      .header {
+        margin-bottom: 16px;
+      }
+
+      .title {
+        margin: 0 0 4px;
+        font-size: 22px;
+        font-weight: 700;
+      }
+
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 16px 0 20px;
+      }
+
+      .chip {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 16px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-height: 100%;
+      }
+
+      .image-wrap {
+        aspect-ratio: 4 / 3;
+        background: #f3f4f6;
+        overflow: hidden;
+      }
+
+      .image-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .content {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        flex: 1;
+      }
+
+      .name {
+        margin: 0;
+        font-size: 17px;
+        line-height: 1.35;
+      }
+
+      .desc {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 42px;
+      }
+
+      .meta-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .price {
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .stock {
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--success-bg);
+        color: var(--success-text);
+        font-weight: 600;
+      }
+
+      .category {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .tag {
+        font-size: 12px;
+        color: var(--muted);
+        padding: 5px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: #fafafa;
+      }
+
+      .actions {
+        margin-top: auto;
+        display: flex;
+        gap: 10px;
+      }
+
+      .button {
+        appearance: none;
+        border: none;
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      .button.primary {
+        background: var(--accent);
+        color: white;
+        flex: 1;
+      }
+
+      .button.secondary {
+        background: #f3f4f6;
+        color: var(--text);
+        flex: 1;
+      }
+
+      .empty {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 24px;
+        text-align: center;
+        color: var(--muted);
+        box-shadow: var(--shadow);
+      }
+
+      .loading {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      @media (max-width: 640px) {
+        body {
+          padding: 10px;
+        }
+
+        .content {
+          padding: 14px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1 class="title">Résultats catalogue</h1>
+        <p class="subtitle" id="subtitle">Chargement des produits…</p>
+      </div>
+
+      <div class="summary" id="summary"></div>
+      <div id="app" class="loading">Chargement…</div>
+    </div>
+
+    <script type="module">
+      const appEl = document.getElementById("app");
+      const subtitleEl = document.getElementById("subtitle");
+      const summaryEl = document.getElementById("summary");
+
+      let currentData = {
+        query: "",
+        total: 0,
+        products: [],
+      };
+
+      const escapeHtml = (value) =>
+        String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+
+      function updateDataFromToolResult(payload) {
+        const structured = payload?.structuredContent;
+        if (!structured) return;
+
+        currentData = {
+          query: structured.query ?? "",
+          total: structured.total ?? 0,
+          products: Array.isArray(structured.products) ? structured.products : [],
+        };
+
+        render();
+      }
+
+      function renderSummary() {
+        summaryEl.innerHTML = "";
+
+        const chips = [
+          currentData.query ? `Recherche : ${currentData.query}` : "Tous les produits",
+          `${currentData.total} résultat(s)`,
+        ];
+
+        for (const label of chips) {
+          const div = document.createElement("div");
+          div.className = "chip";
+          div.textContent = label;
+          summaryEl.appendChild(div);
+        }
+      }
+
+      function render() {
+        const { query, total, products } = currentData;
+
+        subtitleEl.textContent = query
+          ? `${total} produit(s) trouvé(s) pour « ${query} »`
+          : `${total} produit(s) disponibles dans le catalogue`;
+
+        renderSummary();
+
+        if (!products.length) {
+          appEl.innerHTML = `<div class="empty">Aucun produit trouvé.</div>`;
+          return;
+        }
+
+        appEl.innerHTML = `
+          <div class="grid">
+            ${products
+              .map(
+                (product) => `
+              <article class="card">
+                <div class="image-wrap">
+                  <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" />
+                </div>
+                <div class="content">
+                  <div class="category">${escapeHtml(product.category || "Catalogue")}</div>
+                  <h2 class="name">${escapeHtml(product.name)}</h2>
+                  <p class="desc">${escapeHtml(product.description || "")}</p>
+
+                  <div class="meta-row">
+                    <div class="price">${Number(product.price).toFixed(2)} ${escapeHtml(product.currency || "CHF")}</div>
+                    <div class="stock">Stock : ${escapeHtml(product.stock ?? 0)}</div>
+                  </div>
+
+                  <div class="tags">
+                    ${(product.tags || [])
+                      .map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`)
+                      .join("")}
+                  </div>
+
+                  <div class="actions">
+                    <button class="button primary" data-product-id="${escapeHtml(product.id)}" data-action="details">
+                      Voir détail
+                    </button>
+                    <button class="button secondary" data-product-id="${escapeHtml(product.id)}" data-action="select">
+                      Choisir
+                    </button>
+                  </div>
+                </div>
+              </article>
+            `
+              )
+              .join("")}
+          </div>
+        `;
+      }
+
+      // Bridge MCP Apps standard: JSON-RPC over postMessage
+      let rpcId = 0;
+      const pending = new Map();
+
+      function rpcNotify(method, params) {
+        window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
+      }
+
+      function rpcRequest(method, params) {
+        return new Promise((resolve, reject) => {
+          const id = ++rpcId;
+          pending.set(id, { resolve, reject });
+
+          window.parent.postMessage(
+            { jsonrpc: "2.0", id, method, params },
+            "*"
+          );
+        });
+      }
+
+      window.addEventListener(
+        "message",
+        (event) => {
+          if (event.source !== window.parent) return;
+          const message = event.data;
+          if (!message || message.jsonrpc !== "2.0") return;
+
+          if (typeof message.id === "number") {
+            const req = pending.get(message.id);
+            if (!req) return;
+            pending.delete(message.id);
+
+            if (message.error) {
+              req.reject(message.error);
+              return;
+            }
+
+            req.resolve(message.result);
+            return;
+          }
+
+          if (message.method === "ui/notifications/tool-result") {
+            updateDataFromToolResult(message.params);
+          }
+        },
+        { passive: true }
+      );
+
+      async function initializeBridge() {
+        await rpcRequest("ui/initialize", {
+          appInfo: { name: "products-widget", version: "1.0.0" },
+          appCapabilities: {},
+          protocolVersion: "2026-01-26",
+        });
+
+        rpcNotify("ui/notifications/initialized", {});
+      }
+
+      const bridgeReady = initializeBridge().catch((error) => {
+        console.error("Bridge init failed:", error);
+      });
+
+      appEl.addEventListener("click", async (event) => {
+        const target = event.target.closest("button[data-action]");
+        if (!target) return;
+
+        const action = target.dataset.action;
+        const productId = target.dataset.productId;
+        if (!productId) return;
+
+        try {
+          await bridgeReady;
+
+          if (action === "details") {
+            const result = await rpcRequest("tools/call", {
+              name: "get_product",
+              arguments: { id: productId },
+            });
+
+            updateDataFromToolResult(result);
+          }
+
+          if (action === "select") {
+            const result = await rpcRequest("tools/call", {
+              name: "get_product",
+              arguments: { id: productId },
+            });
+
+            updateDataFromToolResult(result);
+          }
+        } catch (error) {
+          console.error("Tool call failed:", error);
+        }
+      });
+
+      render();
+    </script>
+  </body>
+</html>
