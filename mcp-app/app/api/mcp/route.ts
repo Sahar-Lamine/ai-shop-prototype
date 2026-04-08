@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { z } from "zod";
 import { createMcpHandler } from "mcp-handler";
 
 type Product = {
@@ -16,18 +15,18 @@ type Product = {
 };
 
 const BACKEND_URL = process.env.BACKEND_URL;
+const APP_URL = process.env.APP_URL;
 
 if (!BACKEND_URL) {
   throw new Error("Missing BACKEND_URL environment variable");
 }
 
-const BACKEND_ORIGIN = new URL(BACKEND_URL).origin;
-const WIDGET_URI = "ui://widget/products-grid.html";
+if (!APP_URL) {
+  throw new Error("Missing APP_URL environment variable");
+}
 
-const widgetHtml = readFileSync(
-  join(process.cwd(), "public", "products-widget.html"),
-  "utf8"
-);
+const WIDGET_URI = "ui://widget/products-grid";
+const WIDGET_URL = new URL("/widget", APP_URL).toString();
 
 async function fetchProducts(search?: string): Promise<Product[]> {
   const url = search
@@ -58,7 +57,7 @@ async function fetchProductById(id: string): Promise<Product | null> {
   return res.json();
 }
 
-function getToolMeta() {
+function toolMeta() {
   return {
     ui: {
       resourceUri: WIDGET_URI,
@@ -66,62 +65,41 @@ function getToolMeta() {
     "openai/outputTemplate": WIDGET_URI,
     "openai/toolInvocation/invoking": "Chargement des produits…",
     "openai/toolInvocation/invoked": "Produits affichés.",
+    "openai/widgetAccessible": true,
   };
 }
 
 const handler = createMcpHandler(
   (server) => {
-    // 1) Register the UI resource used by ChatGPT to render the grid
-    server.registerResource(
-      "products-grid-widget",
+    server.resource(
+      "products-grid",
       WIDGET_URI,
-      {
-        title: "Products Grid",
-        description: "Affiche les produits du catalogue sous forme de grille.",
-        mimeType: "text/html+skybridge",
-      },
-      async () => ({
-        contents: [
-          {
-            uri: WIDGET_URI,
-            mimeType: "text/html+skybridge",
-            text: widgetHtml,
-            _meta: {
-              "openai/widgetDescription":
-                "Une grille de produits e-commerce avec image, prix, description, stock et actions.",
-              "openai/widgetPrefersBorder": true,
-              "openai/widgetCSP": {
-                connect_domains: [BACKEND_ORIGIN],
-                resource_domains: [
-                  BACKEND_ORIGIN,
-                  "https://via.placeholder.com",
-                ],
+      async () => {
+        const html = await fetch(WIDGET_URL, { cache: "no-store" }).then((r) =>
+          r.text()
+        );
+
+        return {
+          contents: [
+            {
+              uri: WIDGET_URI,
+              mimeType: "text/html;profile=mcp-app",
+              text: html,
+              _meta: {
+                "openai/widgetDescription":
+                  "Une grille de produits e-commerce avec image, prix, description et stock.",
+                "openai/widgetPrefersBorder": true,
               },
             },
-          },
-        ],
-      })
+          ],
+        };
+      }
     );
 
-    // 2) Tool: list all products
-    server.registerTool(
+    server.tool(
       "list_products",
-      {
-        title: "Lister les produits",
-        description: "Retourne tous les produits du catalogue.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-          additionalProperties: false,
-        },
-        annotations: {
-          readOnlyHint: true,
-          destructiveHint: false,
-          openWorldHint: false,
-          idempotentHint: true,
-        },
-        _meta: getToolMeta(),
-      },
+      "Retourne tous les produits du catalogue.",
+      {},
       async () => {
         const products = await fetchProducts();
 
@@ -137,43 +115,19 @@ const handler = createMcpHandler(
               text: `${products.length} produit(s) disponibles dans le catalogue.`,
             },
           ],
-          _meta: {
-            source: "catalogue",
-          },
+          _meta: toolMeta(),
         };
       }
     );
 
-    // 3) Tool: search products
-    server.registerTool(
+    server.tool(
       "search_products",
+      "Recherche des produits du catalogue par mot-clé.",
       {
-        title: "Rechercher des produits",
-        description:
-          "Recherche des produits du catalogue par mot-clé, par exemple sucre, riz ou farine.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              minLength: 1,
-              description: "Mot-clé de recherche produit",
-            },
-          },
-          required: ["query"],
-          additionalProperties: false,
-        },
-        annotations: {
-          readOnlyHint: true,
-          destructiveHint: false,
-          openWorldHint: false,
-          idempotentHint: true,
-        },
-        _meta: getToolMeta(),
+        query: z.string().min(1),
       },
-      async (args: { query: string }) => {
-        const query = (args?.query ?? "").trim();
-        const products = await fetchProducts(query);
+      async ({ query }) => {
+        const products = await fetchProducts(query.trim());
 
         return {
           structuredContent: {
@@ -187,42 +141,19 @@ const handler = createMcpHandler(
               text: `${products.length} produit(s) trouvé(s) pour « ${query} ».`,
             },
           ],
-          _meta: {
-            query,
-          },
+          _meta: toolMeta(),
         };
       }
     );
 
-    // 4) Tool: get one product
-    server.registerTool(
+    server.tool(
       "get_product",
+      "Retourne le détail d’un produit via son identifiant.",
       {
-        title: "Détail produit",
-        description: "Retourne le détail d’un produit par son identifiant.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: {
-              type: "string",
-              minLength: 1,
-              description: "Identifiant du produit",
-            },
-          },
-          required: ["id"],
-          additionalProperties: false,
-        },
-        annotations: {
-          readOnlyHint: true,
-          destructiveHint: false,
-          openWorldHint: false,
-          idempotentHint: true,
-        },
-        _meta: getToolMeta(),
+        id: z.string().min(1),
       },
-      async (args: { id: string }) => {
-        const id = (args?.id ?? "").trim();
-        const product = await fetchProductById(id);
+      async ({ id }) => {
+        const product = await fetchProductById(id.trim());
 
         if (!product) {
           return {
@@ -237,9 +168,7 @@ const handler = createMcpHandler(
                 text: `Aucun produit trouvé pour l’identifiant ${id}.`,
               },
             ],
-            _meta: {
-              missingId: id,
-            },
+            _meta: toolMeta(),
           };
         }
 
@@ -255,9 +184,7 @@ const handler = createMcpHandler(
               text: `Détail du produit : ${product.name}.`,
             },
           ],
-          _meta: {
-            selectedId: id,
-          },
+          _meta: toolMeta(),
         };
       }
     );
